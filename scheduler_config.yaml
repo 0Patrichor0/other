@@ -1,0 +1,104 @@
+prometheus:
+  url: "http://127.0.0.1:9090"
+  timeout_seconds: 10
+
+algorithm:
+  alpha: 1.2
+  gamma: 0.98
+
+io:
+  state_file: "./bandit_state.json"
+  pending_file: "./pending_decisions.json"
+
+clusters:
+  - name: "edge-1"
+    downstream_repo: "edge-1"
+    capabilities: ["multus", "macvlan"]
+  - name: "edge-2"
+    downstream_repo: "edge-2"
+    capabilities: ["multus", "macvlan"]
+
+# 这一版 PromQL 偏向 kube-state-metrics + node-exporter 的通用写法。
+# 默认约定：管理集群抓回来的边缘集群指标都带有 cluster="<cluster-name>" 标签。
+# 如果你环境里的标签不是 cluster，而是 kubernetes_cluster / source_cluster / prometheus_replica 之类，
+# 只需要把下面所有 cluster="{cluster}" 一次性替换成你的真实标签名即可。
+promql:
+  # ---- 标准资源指标：通常 kube-state-metrics / node-exporter 都会有 ----
+  cpu_allocatable_cores: 'sum(kube_node_status_allocatable{resource="cpu",unit="core",cluster="{cluster}"}) or vector(0)'
+  mem_allocatable_bytes: 'sum(kube_node_status_allocatable{resource="memory",unit="byte",cluster="{cluster}"}) or vector(0)'
+  # free5gc 官方场景通常不强依赖 hugepages；没有该指标时返回 0 即可
+  hugepages_allocatable_bytes: 'sum(kube_node_status_allocatable{resource=~"hugepages-.*",unit="byte",cluster="{cluster}"}) or vector(0)'
+
+  # CPU 当前使用量（核）
+  cpu_used_5m_cores: 'sum(rate(node_cpu_seconds_total{mode!="idle",cluster="{cluster}"}[5m])) or vector(0)'
+  cpu_used_15m_cores: 'sum(rate(node_cpu_seconds_total{mode!="idle",cluster="{cluster}"}[15m])) or vector(0)'
+
+  # 内存：这里取的是 available / total，脚本里会再换算成 mem_used_ratio
+  mem_available_bytes: 'sum(node_memory_MemAvailable_bytes{cluster="{cluster}"}) or vector(0)'
+  mem_total_bytes: 'sum(node_memory_MemTotal_bytes{cluster="{cluster}"}) or vector(0)'
+
+  # 节点健康度：Ready 节点占比
+  node_ready_ratio: '((sum(kube_node_status_condition{condition="Ready",status="true",cluster="{cluster}"}) or vector(0)) / clamp_min((count(kube_node_status_condition{condition="Ready",cluster="{cluster}"}) or vector(0)), 1))'
+
+  # 最近 15 分钟重启次数
+  restart_count_15m: 'sum(increase(kube_pod_container_status_restarts_total{cluster="{cluster}"}[15m])) or vector(0)'
+
+  # 调度失败：不同环境可能没有 scheduler_* 指标，没有就返回 0
+  # 如果你后面确认有更合适的指标，可以替换成自己的版本
+  sched_fail_count_15m: 'sum(increase(scheduler_schedule_attempts_total{result="unschedulable",cluster="{cluster}"}[15m])) or vector(0)'
+
+  # ---- 可选网络与硬件指标：没有这些指标时先回退成 0，不阻塞脚本运行 ----
+  # 更推荐你后面用 blackbox exporter / 自定义 exporter 把这几个值补齐
+  rtt_ms: 'avg(cluster_rtt_ms{cluster="{cluster}"}) or vector(0)'
+  jitter_ms: 'avg(cluster_jitter_ms{cluster="{cluster}"}) or vector(0)'
+  vf_free: 'avg(cluster_vf_free{cluster="{cluster}"}) or vector(0)'
+
+service_profiles:
+  # 参考 Nephio 官方 free5gc：UPF 在 Edge clusters；README 要求 Multus + macvlan。
+  # 由于本配置默认 rtt/jitter 可能暂时取不到，先把阈值放宽，等你接入 blackbox 指标后再收紧。
+  upf:
+    max_rtt_ms: 999999
+    max_jitter_ms: 999999
+    min_node_ready_ratio: 0.95
+    max_restart_count_15m: 10
+    required_capabilities: ["multus", "macvlan"]
+  amf:
+    max_rtt_ms: 999999
+    max_jitter_ms: 999999
+    min_node_ready_ratio: 0.95
+    max_restart_count_15m: 20
+    required_capabilities: ["multus", "macvlan"]
+  smf:
+    max_rtt_ms: 999999
+    max_jitter_ms: 999999
+    min_node_ready_ratio: 0.95
+    max_restart_count_15m: 20
+    required_capabilities: ["multus", "macvlan"]
+  obs:
+    max_rtt_ms: 999999
+    max_jitter_ms: 999999
+    min_node_ready_ratio: 0.90
+    max_restart_count_15m: 30
+    required_capabilities: []
+
+reward_weights:
+  ready_success: 0.25
+  latency_sla_success: 0.25
+  latency_score: 0.20
+  jitter_score: 0.10
+  headroom_after_score: 0.10
+  stability_score: 0.10
+  rollback_flag: -0.30
+  overload_flag: -0.20
+
+safety:
+  cpu_ratio: 0.15
+  mem_ratio: 0.10
+  hugepages_ratio: 0.10
+  vf_count: 1
+
+yaml_patch:
+  downstream_repo_path: "spec.downstream.repo"
+  packagevariant_name_path: "metadata.name"
+  patch_metadata_name: true
+  metadata_name_rewrite_mode: "replace_repo_suffix"
