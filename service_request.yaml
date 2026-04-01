@@ -1,0 +1,28 @@
+decision_id: "req-20260401-upf-001"
+service_class: "upf"
+latency_class: "strict"
+region_code: "edge"
+
+# 基础设施资源需求：给脚本做过滤和评分
+# 这是一份贴近 Nephio 官方 free5gc UPF 示例的保守起步值
+req_cpu_cores: 2
+req_mem_gib: 4
+req_hugepages_gib: 0
+req_vf: 0
+replica_count: 1
+
+# 网络/SLA
+# 官方示例里 UPF 部署在 Edge clusters，因此这里维持更严格的时延要求
+# 你可以根据实测情况再调小或调大
+target_rtt_ms: 20
+target_jitter_ms: 5
+
+# 必需能力：参考 free5gc operator README
+required_capabilities:
+  - multus
+  - macvlan
+
+# 业务容量：参考 catalog/workloads/free5gc/pkg-example-upf-bp/capacity.yaml
+capacity:
+  max_uplink_throughput: "5G"
+  max_downlink_throughput: "5G"
