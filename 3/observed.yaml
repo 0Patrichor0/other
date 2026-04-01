@@ -1,0 +1,8 @@
+ready_success: 1
+latency_sla_success: 1
+latency_score: 0.92
+jitter_score: 0.88
+headroom_after_score: 0.65
+stability_score: 0.95
+rollback_flag: 0
+overload_flag: 0
