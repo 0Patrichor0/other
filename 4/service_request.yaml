@@ -1,0 +1,17 @@
+decision_id: req-20260401-upf-001
+service_class: upf
+latency_class: strict
+region_code: edge
+req_cpu_cores: 0.5
+req_mem_gib: 0.25
+req_hugepages_gib: 0
+req_vf: 0
+replica_count: 1
+target_rtt_ms: 20
+target_jitter_ms: 5
+required_capabilities:
+- multus
+- macvlan
+capacity:
+  max_uplink_throughput: 5G
+  max_downlink_throughput: 5G

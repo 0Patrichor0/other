@@ -1,0 +1,95 @@
+prometheus:
+  url: http://127.0.0.1:9090
+  timeout_seconds: 10
+algorithm:
+  alpha: 1.2
+  gamma: 0.98
+io:
+  state_file: ./bandit_state.json
+  pending_file: ./pending_decisions.json
+clusters:
+- name: edge-1
+  downstream_repo: edge-1
+  capabilities:
+  - multus
+  - macvlan
+- name: edge-2
+  downstream_repo: edge-2
+  capabilities:
+  - multus
+  - macvlan
+promql:
+  cpu_allocatable_cores: sum(kube_node_status_allocatable{resource="cpu",unit="core",cluster="{cluster}"})
+    or vector(0)
+  mem_allocatable_bytes: sum(kube_node_status_allocatable{resource="memory",unit="byte",cluster="{cluster}"})
+    or vector(0)
+  hugepages_allocatable_bytes: sum(kube_node_status_allocatable{resource=~"hugepages-.*",unit="byte",cluster="{cluster}"})
+    or vector(0)
+  cpu_used_5m_cores: sum(rate(node_cpu_seconds_total{mode!="idle",cluster="{cluster}"}[5m]))
+    or vector(0)
+  cpu_used_15m_cores: sum(rate(node_cpu_seconds_total{mode!="idle",cluster="{cluster}"}[15m]))
+    or vector(0)
+  mem_available_bytes: sum(node_memory_MemAvailable_bytes{cluster="{cluster}"}) or
+    vector(0)
+  mem_total_bytes: sum(node_memory_MemTotal_bytes{cluster="{cluster}"}) or vector(0)
+  node_ready_ratio: avg(kube_node_status_condition{condition="Ready",status="true",cluster="{cluster}"})
+    or vector(0)
+  restart_count_15m: sum(increase(kube_pod_container_status_restarts_total{cluster="{cluster}"}[15m]))
+    or vector(0)
+  sched_fail_count_15m: sum(increase(scheduler_schedule_attempts_total{result="unschedulable",cluster="{cluster}"}[15m]))
+    or vector(0)
+  rtt_ms: avg(cluster_rtt_ms{cluster="{cluster}"}) or vector(0)
+  jitter_ms: avg(cluster_jitter_ms{cluster="{cluster}"}) or vector(0)
+  vf_free: avg(cluster_vf_free{cluster="{cluster}"}) or vector(0)
+service_profiles:
+  upf:
+    max_rtt_ms: 999999
+    max_jitter_ms: 999999
+    min_node_ready_ratio: 0.95
+    max_restart_count_15m: 10
+    required_capabilities:
+    - multus
+    - macvlan
+  amf:
+    max_rtt_ms: 999999
+    max_jitter_ms: 999999
+    min_node_ready_ratio: 0.95
+    max_restart_count_15m: 20
+    required_capabilities:
+    - multus
+    - macvlan
+  smf:
+    max_rtt_ms: 999999
+    max_jitter_ms: 999999
+    min_node_ready_ratio: 0.95
+    max_restart_count_15m: 20
+    required_capabilities:
+    - multus
+    - macvlan
+  obs:
+    max_rtt_ms: 999999
+    max_jitter_ms: 999999
+    min_node_ready_ratio: 0.9
+    max_restart_count_15m: 30
+    required_capabilities: []
+reward_weights:
+  ready_success: 0.25
+  latency_sla_success: 0.25
+  latency_score: 0.2
+  jitter_score: 0.1
+  headroom_after_score: 0.1
+  stability_score: 0.1
+  rollback_flag: -0.3
+  overload_flag: -0.2
+safety:
+  cpu_ratio: 0.15
+  mem_ratio: 0.02
+  hugepages_ratio: 0.1
+  vf_count: 1
+  mem_reserve_max_gib: 0.25
+  cpu_reserve_max_cores: 1.0
+yaml_patch:
+  downstream_repo_path: spec.downstream.repo
+  packagevariant_name_path: metadata.name
+  patch_metadata_name: true
+  metadata_name_rewrite_mode: replace_repo_suffix
